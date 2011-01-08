@@ -91,6 +91,7 @@ def write_node_config(c, config):
         webport = ""
     c.write("web.port = %s\n" % (webport.encode('utf-8'),))
     c.write("web.static = public_html\n")
+    c.write("#http_proxy =\n")
     c.write("#tub.port =\n")
     c.write("#tub.location = \n")
     c.write("#log_gatherer.furl =\n")

@@ -185,6 +185,10 @@ class Node(service.MultiService):
             # N.B.: this is in seconds, so use "1800" to get 30min
             self.tub.setOption("disconnectTimeout", int(disconnect_timeout_s))
 
+        http_proxy = self.get_config("node", "http_proxy", "")
+        if http_proxy:
+            self.tub.setOption("http-proxy", http_proxy)
+
         self.nodeid = b32decode(self.tub.tubID.upper()) # binary format
         self.write_config("my_nodeid", b32encode(self.nodeid).lower() + "\n")
         self.short_nodeid = b32encode(self.nodeid).lower()[:8] # ready for printing
@@ -305,7 +309,11 @@ class Node(service.MultiService):
 
         service.MultiService.startService(self)
         d = defer.succeed(None)
-        d.addCallback(lambda res: iputil.get_local_addresses_async())
+        location = self.get_config("node", "tub.location", None)
+        if location == "":
+            d.addCallback(lambda res: ['127.0.0.1'])
+        else:
+            d.addCallback(lambda res: iputil.get_local_addresses_async())
         d.addCallback(self._setup_tub)
         def _ready(res):
             self.log("%s running" % self.NODETYPE)
@@ -381,6 +389,8 @@ class Node(service.MultiService):
         base_location = ",".join([ "%s:%d" % (addr, portnum)
                                    for addr in local_addresses ])
         location = self.get_config("node", "tub.location", base_location)
+        if location == "":
+            location = base_location
         self.log("Tub location set to %s" % location)
         self.tub.setLocation(location)
 
