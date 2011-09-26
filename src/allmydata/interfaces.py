@@ -30,6 +30,22 @@ WriteEnablerSecret = Hash # used to protect mutable bucket modifications
 LeaseRenewSecret = Hash # used to protect bucket lease renewal requests
 LeaseCancelSecret = Hash # used to protect bucket lease cancellation requests
 
+TestVector = ListOf(TupleOf(Offset, ReadSize, str, str))
+# elements are (offset, length, operator, specimen)
+# operator is one of "lt, le, eq, ne, ge, gt"
+# nop always passes and is used to fetch data while writing.
+# you should use length==len(specimen) for everything except nop
+DataVector = ListOf(TupleOf(Offset, ShareData))
+# (offset, data). This limits us to 30 writes of 1MiB each per call
+TestAndWriteVectorsForShares = DictOf(int,
+                                      TupleOf(TestVector,
+                                              DataVector,
+                                              ChoiceOf(None, Offset), # new_length
+                                              ))
+ReadVector = ListOf(TupleOf(Offset, ReadSize))
+ReadData = ListOf(ShareData)
+# returns data[offset:offset+length] for each element of TestVector
+
 class RIStubClient(RemoteInterface):
     """Each client publishes a service announcement for a dummy object called
     the StubClient. This object doesn't actually offer any services, but the
@@ -59,6 +75,8 @@ class RIBucketWriter(RemoteInterface):
 class RIBucketReader(RemoteInterface):
     def read(offset=Offset, length=ReadSize):
         return ShareData
+    def readv(readv=ReadVector):
+        return ReadData
 
     def advise_corrupt_share(reason=str):
         """Clients who discover hash failures in shares that they have
@@ -71,22 +89,6 @@ class RIBucketReader(RemoteInterface):
         extra share-identifying arguments. Please see that method for full
         documentation.
         """
-
-TestVector = ListOf(TupleOf(Offset, ReadSize, str, str))
-# elements are (offset, length, operator, specimen)
-# operator is one of "lt, le, eq, ne, ge, gt"
-# nop always passes and is used to fetch data while writing.
-# you should use length==len(specimen) for everything except nop
-DataVector = ListOf(TupleOf(Offset, ShareData))
-# (offset, data). This limits us to 30 writes of 1MiB each per call
-TestAndWriteVectorsForShares = DictOf(int,
-                                      TupleOf(TestVector,
-                                              DataVector,
-                                              ChoiceOf(None, Offset), # new_length
-                                              ))
-ReadVector = ListOf(TupleOf(Offset, ReadSize))
-ReadData = ListOf(ShareData)
-# returns data[offset:offset+length] for each element of TestVector
 
 class RIStorageServer(RemoteInterface):
     __remote_name__ = "RIStorageServer.tahoe.allmydata.com"
