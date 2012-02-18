@@ -35,6 +35,8 @@ GiB=1024*MiB
 TiB=1024*GiB
 PiB=1024*TiB
 
+MULTI_INTRODUCERS_CFG = "introducers"
+
 class StubClient(Referenceable):
     implements(RIStubClient)
 
@@ -137,7 +139,7 @@ class Client(node.Node, pollmixin.PollMixin):
         self.started_timestamp = time.time()
         self.logSource="Client"
         self.DEFAULT_ENCODING_PARAMETERS = self.DEFAULT_ENCODING_PARAMETERS.copy()
-        self.init_introducer_client()
+        self.init_introducer_clients()
         self.init_stats_provider()
         self.init_secrets()
         self.init_storage()
@@ -169,13 +171,63 @@ class Client(node.Node, pollmixin.PollMixin):
         if webport:
             self.init_web(webport) # strports string
 
-    def init_introducer_client(self):
-        self.introducer_furl = self.get_config("client", "introducer.furl")
-        ic = IntroducerClient(self.tub, self.introducer_furl,
+    def read_old_config_files(self):
+        node.Node.read_old_config_files(self)
+        copy = self._copy_config_from_file
+        copy("introducer.furl", "client", "introducer.furl")
+        copy("helper.furl", "client", "helper.furl")
+        copy("key_generator.furl", "client", "key_generator.furl")
+        copy("stats_gatherer.furl", "client", "stats_gatherer.furl")
+        if os.path.exists(os.path.join(self.basedir, "no_storage")):
+            self.set_config("storage", "enabled", "false")
+        if os.path.exists(os.path.join(self.basedir, "readonly_storage")):
+            self.set_config("storage", "readonly", "true")
+        if os.path.exists(os.path.join(self.basedir, "debug_discard_storage")):
+            self.set_config("storage", "debug_discard", "true")
+        if os.path.exists(os.path.join(self.basedir, "run_helper")):
+            self.set_config("helper", "enabled", "true")
+
+    def init_introducer_clients(self):
+        self.introducer_furls = []
+        self.warn_flag = False
+        # Try to load ""BASEDIR/introducers" cfg file
+        cfg = os.path.join(self.basedir, MULTI_INTRODUCERS_CFG)
+        if os.path.exists(cfg):
+           f = open(cfg, 'r')
+           for introducer_furl in  f.read().split('\n'):
+                if not introducer_furl.strip():
+                    continue
+                self.introducer_furls.append(introducer_furl)
+           f.close()
+        furl_count = len(self.introducer_furls)
+        #print "@icfg: furls: %d" %furl_count
+
+        # read furl from tahoe.cfg
+        ifurl = self.get_config("client", "introducer.furl", None)
+        if ifurl and ifurl not in self.introducer_furls:
+            self.introducer_furls.append(ifurl)
+            f = open(cfg, 'a')
+            f.write(ifurl)
+            f.write('\n')
+            f.close()
+            if furl_count > 1:
+                self.warn_flag = True
+                self.log("introducers config file modified.")
+                print "Warning! introducers config file modified."
+
+        # create a pool of introducer_clients
+        self.introducer_clients = []
+        for introducer_furl in self.introducer_furls:
+            ic = IntroducerClient(self.tub, introducer_furl,
                               self.nickname,
                               str(allmydata.__full_version__),
                               str(self.OLDEST_SUPPORTED_VERSION))
-        self.introducer_client = ic
+            self.introducer_clients.append(ic)
+        # init introducer_clients as usual
+        for ic in self.introducer_clients:
+            self.init_introducer_client(ic)
+
+    def init_introducer_client(self, ic):
         # hold off on starting the IntroducerClient until our tub has been
         # started, so we'll have a useful address on our RemoteReference, so
         # that the introducer's status page will show us.
@@ -263,7 +315,9 @@ class Client(node.Node, pollmixin.PollMixin):
             furl_file = os.path.join(self.basedir, "private", "storage.furl").encode(get_filesystem_encoding())
             furl = self.tub.registerReference(ss, furlFile=furl_file)
             ri_name = RIStorageServer.__remote_name__
-            self.introducer_client.publish(furl, "storage", ri_name)
+            # Now, publish multiple introducers
+            for ic in self.introducer_clients:
+                ic.publish(furl, "storage", ri_name)
         d.addCallback(_publish)
         d.addErrback(log.err, facility="tahoe.init",
                      level=log.BAD, umid="aLGBKw")
@@ -316,7 +370,10 @@ class Client(node.Node, pollmixin.PollMixin):
         # check to see if we're supposed to use the introducer too
         if self.get_config("client-server-selection", "use_introducer",
                            default=True, boolean=True):
-            sb.use_introducer(self.introducer_client)
+
+            # Now, use our multiple introducers
+            for ic in self.introducer_clients:
+                sb.use_introducer(ic)
 
     def get_storage_broker(self):
         return self.storage_broker
@@ -329,7 +386,9 @@ class Client(node.Node, pollmixin.PollMixin):
             sc = StubClient()
             furl = self.tub.registerReference(sc)
             ri_name = RIStubClient.__remote_name__
-            self.introducer_client.publish(furl, "stub_client", ri_name)
+            # Now publish our multiple introducers
+            for ic in self.introducer_clients:
+                ic.publish(furl, "stub_client", ri_name)
         d = self.when_tub_ready()
         d.addCallback(_publish)
         d.addErrback(log.err, facility="tahoe.init",
@@ -469,10 +528,15 @@ class Client(node.Node, pollmixin.PollMixin):
     def get_encoding_parameters(self):
         return self.DEFAULT_ENCODING_PARAMETERS
 
+    # In case we configure multiple introducers
     def connected_to_introducer(self):
-        if self.introducer_client:
-            return self.introducer_client.connected_to_introducer()
-        return False
+        status = []
+        if self.introducer_clients:
+            s = False
+            for ic in self.introducer_clients:
+                s = ic.connected_to_introducer()
+                status.append(s)
+        return status
 
     def get_renewal_secret(self): # this will go away
         return self._secret_holder.get_renewal_secret()
