@@ -78,15 +78,10 @@ private key, which are easy to move to a new host in case the original one
 suffers an unrecoverable hardware problem. Second, even if the private key is
 lost, clients can be reconfigured to use a new introducer.
 
-By deploying multiple introducers in a Tahoe-LAFS grid, the above SPoF challenge
-can be overcome. In that case if one introducer fails clients are still be
-able to get announcement about new servers from remaining introducers. This is
-our first step towards implementing a fully distributed introduction.
-
-By deploying multiple introducers in a Tahoe-LAFS grid, the above SPoF challenge
-can be overcome. In that case if one introducer fails clients are still be
-able to get announcement about new servers from remaining introducers. This is
-our first step towards implementing a fully distributed introduction.
+By deploying multiple introducers in a Tahoe-LAFS grid, the above SPoF
+challenge can be overcome. In that case if one introducer fails clients are
+still be able to get announcement about new servers from remaining introducers.
+This is our first step towards implementing a fully distributed introduction.
 
 File Encoding
 =============
